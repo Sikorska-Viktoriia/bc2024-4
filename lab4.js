@@ -1,90 +1,96 @@
 const http = require('http');
 const { Command } = require('commander');
-const fs = require('fs').promises; // Використовуємо асинхронні методи
+const fs = require('fs').promises; // Use promises for async file operations
 const path = require('path');
 
-// Запуск без параметрів
-if (process.argv.length <= 2) {
-    console.error("Помилка: Будь ласка, вкажіть обов'язкові параметри: -h <address> -p <number> -c <path>");
-    process.exit(1);
-}
-
-// Ініціалізація Commander
+// Initialize Commander
 const program = new Command();
 
-// Налаштування командних аргументів
+// Set up command-line arguments
 program
-    .requiredOption('-h, --host <address>', 'адреса сервера')
-    .requiredOption('-p, --port <number>', 'порт сервера')
-    .requiredOption('-c, --cache <path>', 'шлях до директорії для закешованих файлів');
+    .requiredOption('-h, --host <address>', 'server address')
+    .requiredOption('-p, --port <number>', 'server port')
+    .requiredOption('-c, --cache <path>', 'path to the directory for cached files');
 
-// Парсинг аргументів
+// Parse arguments
 program.parse(process.argv);
 const options = program.opts();
 
-// Перевірка обов'язкових параметрів
+// Check required parameters
 if (!options.host || !options.port || !options.cache) {
-    console.error("Будь ласка, вкажіть адрес сервера, порт та директорію для кешу.");
+    console.error("Error: Please specify required parameters: -h <address> -p <number> -c <path>");
     process.exit(1);
 }
 
-// Створення сервера
+// Create server
 const requestListener = async(req, res) => {
     const { url, method } = req;
-    const statusCode = url.slice(1); // Отримуємо код з URL
+    const statusCode = url.slice(1); // Get code from URL
+
+    // Validate statusCode
+    if (!/^\d{3}$/.test(statusCode)) {
+        res.writeHead(400, { 'Content-Type': 'text/plain' });
+        res.end('Bad Request: Invalid status code');
+        return;
+    }
+
     const filePath = path.join(options.cache, `${statusCode}.jpg`);
 
     switch (method) {
         case 'GET':
             try {
-                const image = await fs.readFile(filePath);
+                await fs.access(filePath); // Check if file exists
+                console.log('File exists, reading.');
+                const image = await fs.readFile(filePath); // Read the image
                 res.writeHead(200, { 'Content-Type': 'image/jpeg' });
-                res.end(image);
+                res.end(image); // Send the image in the response
             } catch (error) {
-                console.error('Помилка при читанні файлу:', error);
+                console.error('Error reading file:', error);
                 res.writeHead(404, { 'Content-Type': 'text/plain' });
-                res.end('Not Found');
+                res.end('Not Found'); // File not found
             }
             break;
 
         case 'PUT':
             try {
                 const chunks = [];
-                req.on('data', chunk => chunks.push(chunk));
+                req.on('data', chunk => chunks.push(chunk)); // Collect data chunks
                 req.on('end', async() => {
-                    const imageBuffer = Buffer.concat(chunks);
-                    await fs.writeFile(filePath, imageBuffer);
+                    const imageBuffer = Buffer.concat(chunks); // Combine chunks into a single buffer
+                    await fs.writeFile(filePath, imageBuffer); // Write the image to the file
                     res.writeHead(201, { 'Content-Type': 'text/plain' });
-                    res.end('Created');
+                    res.end('Created'); // Respond with created status
                 });
             } catch (error) {
-                console.error('Помилка при запису файлу:', error);
+                console.error('Error writing file:', error);
                 res.writeHead(500, { 'Content-Type': 'text/plain' });
-                res.end('Internal Server Error');
+                res.end('Internal Server Error'); // Handle internal server error
             }
             break;
 
         case 'DELETE':
             try {
-                await fs.unlink(filePath);
+                await fs.access(filePath); // Check if file exists
+                console.log('File exists, deleting.');
+                await fs.unlink(filePath); // Delete the file
                 res.writeHead(200, { 'Content-Type': 'text/plain' });
-                res.end('Deleted');
+                res.end('Deleted'); // Respond with deleted status
             } catch (error) {
-                console.error('Помилка при видаленні файлу:', error);
+                console.error('Error deleting file:', error);
                 res.writeHead(404, { 'Content-Type': 'text/plain' });
-                res.end('Not Found');
+                res.end('Not Found'); // File not found
             }
             break;
 
         default:
             res.writeHead(405, { 'Content-Type': 'text/plain' });
-            res.end('Method Not Allowed');
+            res.end('Method Not Allowed'); // Handle unsupported methods
     }
 };
 
+// Start the server
 const server = http.createServer(requestListener);
-
-// Запуск сервера на вказаних хості та порту
-server.listen(options.port, options.host, () => {
-    console.log(`Сервер запущено на http://${options.host}:${options.port}`);
+const PORT = options.port; // Use port from parameters
+server.listen(PORT, options.host, () => {
+    console.log(`Server is running on http://${options.host}:${PORT}`);
 });
